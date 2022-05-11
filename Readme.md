@@ -134,6 +134,140 @@ roslaunch faster faster.launch quad:=JA01
 Now you can click `Start` in the GUI, and then, in RVIZ, press `G` (or click the option `2D Nav Goal` on the top bar of RVIZ) and click any goal for the ground robot. 
 
 
+## Running FASTER in Singularity
+
+### Install Singularity
+
+Install Singularity using [these](https://sylabs.io/guides/3.5/user-guide/quick_start.html#quick-installation-steps) instructions (compiled from source). The following combination is known to work :
+
+* Ubuntu/Kubuntu 20.04
+* ROS Noetic
+* Go 1.18
+* Singularity 3.9.8 
+
+### Singularity Definition File
+
+Save the below code as `fasterSing.def`. 
+
+```
+Bootstrap: docker
+From: ros:melodic
+
+%setup
+    mkdir -p ${SINGULARITY_ROOTFS}/faster_ws/src/
+    
+%files
+
+%post -c /bin/bash
+    apt -y update; apt-get -y install wget python3 python tar python3-wstool python3-pip python-pip
+	
+    wget https://packages.gurobi.com/9.5/gurobi9.5.1_linux64.tar.gz
+    tar xzvf gurobi9.5.1_linux64.tar.gz
+    cd gurobi951/linux64
+    python3 setup.py install
+
+    export GUROBI_HOME="/gurobi951/linux64"
+    export PATH="${PATH}:${GUROBI_HOME}/bin"
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${GUROBI_HOME}/lib"
+
+    bash --
+    
+    cd /gurobi951/linux64/src/build
+    make
+    cp libgurobi_c++.a ../../lib/
+
+    cd /faster_ws/src/
+    git clone https://github.com/mit-acl/faster.git
+    wstool init
+    wstool merge ./faster/faster/install/faster.rosinstall
+
+    wstool merge ./faster/faster/install/faster_ground_robot.rosinstall
+    wstool update -j8
+    cd ..
+   
+    echo "source /opt/ros/melodic/setup.bash" >> ~/.bashrc
+    source ~/.bashrc
+
+
+%environment
+    export GUROBI_HOME="/gurobi951/linux64"
+    export PATH="${PATH}:${GUROBI_HOME}/bin"
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${GUROBI_HOME}/lib"
+```
+
+### Building Container
+
+Run the following command after saving the `def` file:
+
+```
+sudo singularity build --sandbox fasterSing.sif fasterSing.def 
+```
+
+(if the build fails contact me ASAP)
+
+Run the container using the following code:
+
+```
+sudo singularity run --writable fasterSing.sif
+```
+
+you can run this in multiple terminals and they will be connected to the same instance of the Singularity container.
+
+### Building FASTER
+
+After running the container install the following dependencies in the container environment :
+
+```
+apt-get install ros-melodic-desktop-full
+pip3 install pyquaternion
+pip install pyquaternion
+
+
+apt-get install ros-melodic-catkin python3-catkin-tools python3-osrf-pycommon libeigen3-dev ros-melodic-gazebo-ros-pkgs ros-melodic-mavros-msgs ros-melodic-tf2-sensor-msgs ros-melodic-rqt ros-melodic-rqt-common-plugins ros-melodic-gazebo-ros ros-melodic-lms1xx ros-melodic-robot-localization ros-melodic-interactive-marker-twist-server ros-melodic-mavros-msgs ros-melodic-hector-gazebo-plugins ros-melodic-move-base ros-melodic-tf2-sensor-msgs ros-melodic-pointgrey-camera-driver  ros-melodic-pointgrey-camera-description  ros-melodic-message-to-tf ros-melodic-control-toolbox ros-melodic-ros-control ros-melodic-robot-localization ros-melodic-lms1xx ros-melodic-interactive-marker-twist-server ros-melodic-hector-gazebo-plugins ros-melodic-move-base ros-melodic-ros-control ros-melodic-ros-controllers ros-melodic-pointgrey-camera-description ros-melodic-hardware-interface ros-melodic-message-to-tf ros-melodic-gazebo-ros-control 
+```
+
+For seting up Gurobi license, replace `<your_key>` in ` grbgetkey <your_key>` with your Gurobi license key, which you can get after creating an account and then applying for an academic license from your profile.
+
+```
+grbgetkey <your_key>
+```
+
+Then finally build FASTER:
+
+```
+cd /faster_ws/
+catkin config -DCMAKE_BUILD_TYPE=Release
+catkin build 
+```
+
+### Running The Simulation
+
+After running the container, in [`faster.yaml`](https://github.com/mit-acl/faster/tree/master/faster/param) (in faster/param folder), change these parameters (use a tool like vim or nano):
+```
+drone_radius: 0.5  #[m]
+
+z_max: 0.5         #[m] 
+z_ground: -0.2
+
+v_max: 1.4         #[m/s]  
+a_max: 1.4         #[m/s2] 
+j_max: 5.0         #[m/s3]
+
+is_ground_robot: true  
+```
+
+And finally open 4 terminals (by running the singularity container in 4 terminals) and execute these commands. Dont forget to source `source /faster_ws/devel/setup.bash`
+
+```
+roslaunch faster ground_robot.launch
+roslaunch global_mapper_ros global_mapper_node.launch quad:=JA01
+roslaunch faster faster_interface.launch quad:=JA01 is_ground_robot:=true
+roslaunch faster faster.launch quad:=JA01
+```
+
+Now you can click `Start` in the GUI, and then, in RVIZ, press `G` (or click the option `2D Nav Goal` on the top bar of RVIZ) and click any goal for the ground robot. If there is an error in connecting to X server then execute `xhost +` before running singularity.
+
+
 
 ## Architecture:
 
